@@ -1,0 +1,1 @@
+const TABLE_NAME = "auth_sessions";
