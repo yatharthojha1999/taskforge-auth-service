@@ -10,7 +10,19 @@ const userLoginAction = makeUserLoginAction({
     userLoginUsecase: usersCredentialsUsecase.userLogin,
 });
 
+const makeRotateRefreshTokenAction = require('./rotate-refresh-token');
+const rotateRefreshTokenAction = makeRotateRefreshTokenAction({
+    logoutUsecase: usersCredentialsUsecase.logout,
+});
+
+const makeLogoutAction = require('./logout');
+const logoutAction = makeLogoutAction({
+    logoutUsecase: usersCredentialsUsecase.logout,
+});
+
 module.exports = Object.freeze({
     createUserCredentialsAction,
     userLoginAction,
+    rotateRefreshTokenAction,
+    logoutAction,
 });

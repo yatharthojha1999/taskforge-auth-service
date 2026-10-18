@@ -63,7 +63,7 @@ module.exports = function makeUserLogin({
 
             return {
                 accessToken,
-                refreshTokenHash,
+                refreshToken: token,
                 tokenType: "Bearer",
                 expiresIn: "900 secs",
             }

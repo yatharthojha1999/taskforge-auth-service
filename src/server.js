@@ -1,12 +1,14 @@
 const express = require("express");
 const routes = require("./routes");
 const pool = require("./infrastructure/database/postgres.db");
+const errorHandler = require("./middleware/error-handler");
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
 app.use(express.json());
 app.use("/", routes);
+app.use(errorHandler);
 
 async function startServer() {
     try {

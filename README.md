@@ -1,70 +1,116 @@
 # TaskForge AI — Auth Service
 
-The Auth Service is a microservice within **TaskForge AI**, responsible for authentication, credential management, and token lifecycle management.
+The Auth Service is responsible for authentication and session management in TaskForge AI, a multi-tenant task management platform built using a microservice architecture.
 
-It is designed to operate independently from the User Service. The Auth Service owns user credentials and authentication sessions, while the User Service owns tenant and user profile information.
+It manages user credential verification, access-token issuance, refresh-token rotation, and logout.
 
-## Responsibilities
+## Features
 
-- Securely store and verify user passwords.
-- Create and manage user credentials.
-- Issue and validate JWT access tokens.
-- Manage refresh-token sessions.
-- Support login, token refresh, and logout operations.
-- Provide internal APIs for service-to-service communication.
+- User credential creation through an internal API.
+- Password hashing and verification using Argon2id.
+- Login using tenant identity, email, and password.
+- Access-token generation using JWT with RS256.
+- Refresh tokens generated using cryptographically secure randomness.
+- SHA-256 hashing of refresh tokens before database storage.
+- Refresh-token rotation with PostgreSQL transactions and row locking.
+- Session revocation during logout.
+- Input validation using Joi.
+- PostgreSQL persistence using parameterized queries.
+- Clean Architecture with separate controllers, use cases, and database operations.
+
+## Technology Stack
+
+- Node.js
+- Express.js
+- PostgreSQL
+- `pg`
+- JSON Web Tokens (`jsonwebtoken`)
+- Argon2
+- Joi
+- Axios for communication with the User Service
+- `node-pg-migrate` for database migrations
 
 ## Architecture
 
-The Auth Service follows a Clean Architecture approach, separating HTTP routes, controllers, use cases, database queries, and infrastructure.
+The Auth Service follows a layered architecture:
 
 ```text
-src/
-├── config/
-├── controllers/
-├── database/
-│   ├── migrations/
-│   └── queries/
-├── errors/
-├── infrastructure/
-│   └── database/
-├── middleware/
-├── scripts/
-├── usecases/
-├── utils/
-├── validators/
-├── routes.js
-└── server.js
+HTTP Request
+    |
+    v
+Routes
+    |
+    v
+Controllers
+    |
+    v
+Use Cases
+    |
+    v
+Database Queries
+    |
+    v
+PostgreSQL
 ```
 
-The structure may evolve as the service grows.
+Supporting utilities handle password hashing, password verification, access-token generation, refresh-token generation, and refresh-token hashing.
 
-## Service Responsibilities
+The Auth Service communicates with the User Service when it needs to retrieve user information and verify the user's status.
 
-| Component | Responsibility |
-|---|---|
-| Auth Service | Password hashes, authentication, JWTs, refresh-token sessions |
-| User Service | Tenants, user profiles, and account status |
-| PostgreSQL | Persistent storage owned by this service |
-| User Service integration | Internal request to create credentials for a registered user |
+## Prerequisites
 
-The Auth Service must not directly modify the User Service database.
+- Node.js and npm
+- PostgreSQL
+- A running TaskForge User Service for login and registration integration
+- RSA private and public keys for JWT signing and verification
+
+## Getting Started
+
+Clone the repository:
+
+```bash
+git clone <YOUR_AUTH_SERVICE_REPOSITORY_URL>
+cd taskforge-auth-service
+```
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+Create a local `.env` file based on your environment configuration. Never commit the real `.env` file or private keys.
+
+Example configuration:
+
+```env
+PORT=3001
+DATABASE_URL=postgresql://postgres:<PASSWORD>@localhost:5432/taskforge
+
+JWT_PRIVATE_KEY_PATH=private.pem
+JWT_PUBLIC_KEY_PATH=public.pem
+JWT_ACCESS_EXPIRES_IN=15m
+JWT_ISSUER=taskforge-auth-service
+JWT_AUDIENCE=taskforge-api
+```
+
+Use the actual variable names expected by the application's configuration. Configure the User Service URL and any internal service-authentication secrets required by your implementation.
+
+Generate an RSA key pair for local development if you do not already have one. Keep the private key secret. Distribute the public key to services that need to verify access tokens.
+
+Run the database migrations using the migration command configured in `package.json`.
+
+Start the service using the start or development script defined in `package.json`.
 
 ## API Endpoints
 
-The following endpoints describe the planned API contract. They should be considered **planned until implemented and tested**.
+### 1. Create User Credentials
 
-| Method | Endpoint | Purpose |
-|---|---|---|
-| `POST` | `/internal/v1/credentials` | Create credentials for an existing user |
-| `POST` | `/v1/auth/login` | Verify credentials and issue tokens |
-| `POST` | `/v1/auth/refresh` | Refresh an access token |
-| `POST` | `/v1/auth/logout` | Revoke a refresh-token session |
+**Method:** `POST`
 
-### Internal credential creation
+**Endpoint:** `/internal/v1/credentials`
 
-**Endpoint:** `POST /internal/v1/credentials`
-
-This endpoint is intended for calls from trusted services, such as the User Service, after user registration.
+Creates password credentials for an existing user.
 
 Example request:
 
@@ -72,51 +118,105 @@ Example request:
 {
   "linkname": "acme.com",
   "user_id": 101,
-  "password": "ReplaceWithAStrongPassword"
+  "password": "StrongPassword123!"
 }
 ```
 
-Expected successful response:
+The Auth Service hashes the password before storing it. Plaintext passwords and password hashes must not be returned in API responses or logged.
+
+This is an internal endpoint and must be protected with service-to-service authentication.
+
+### 2. Login
+
+**Method:** `POST`
+
+**Endpoint:** `/auth/v1/login`
+
+Authenticates a user and creates a refresh-token session.
+
+Example request:
 
 ```json
 {
-  "message": "Credentials created successfully",
-  "user_id": 101,
-  "linkname": "acme.com"
+  "linkname": "acme.com",
+  "email": "john@acme.com",
+  "password": "StrongPassword123!"
 }
 ```
 
-The Auth Service will hash the password before storing it. Plaintext passwords and password hashes must never be included in API responses or application logs.
+Successful response:
 
-**Security note:** The `/internal` path is a naming convention, not an access-control mechanism. The endpoint must be protected by service-to-service authentication before production deployment.
+```json
+{
+  "accessToken": "<access-token>",
+  "refreshToken": "<refresh-token>"
+}
+```
 
-## Authentication Design
+The access token is a signed JWT. The refresh token is a securely generated opaque token; only its SHA-256 hash is stored in PostgreSQL.
 
-### Access tokens
+### 3. Refresh Access Token
 
-- JWT access tokens will represent authenticated users.
-- Tokens will contain only the claims needed by downstream services.
-- Downstream services should validate tokens using trusted signing keys.
-- Access tokens should have a limited lifetime.
+**Method:** `POST`
 
-### Refresh tokens
+**Endpoint:** `/auth/v1/refresh`
 
-- Refresh tokens will be managed as persistent authentication sessions.
-- Only a secure representation, such as a cryptographic hash, should be stored.
-- Sessions should support expiration and revocation.
-- Token rotation and reuse detection should be considered.
+Issues a new access token and rotates the refresh token.
 
-The signing algorithm, key management, token lifetime, and revocation strategy must be documented when implemented.
+Example request:
+
+```json
+{
+  "refreshToken": "<current-refresh-token>"
+}
+```
+
+Successful response:
+
+```json
+{
+  "accessToken": "<new-access-token>",
+  "refreshToken": "<new-refresh-token>"
+}
+```
+
+The previous refresh token is invalidated and linked to the replacement session. Reusing the old token must be rejected.
+
+The implementation uses a PostgreSQL transaction and row locking to prevent concurrent requests from successfully rotating the same session.
+
+### 4. Logout
+
+**Method:** `POST`
+
+**Endpoint:** `/auth/v1/logout`
+
+Revokes the session associated with the supplied refresh token.
+
+Example request:
+
+```json
+{
+  "refreshToken": "<current-refresh-token>"
+}
+```
+
+Example response:
+
+```json
+{
+  "message": "Logged out successfully."
+}
+```
+
+Logout revokes the refresh session. An already-issued access token can remain valid until it expires unless an additional access-token revocation mechanism is implemented.
 
 ## Database Design
 
-The planned database schema includes:
-
 ### `user_credentials`
 
-Stores authentication credentials for users.
+Stores password credentials associated with a tenant and user.
 
-Proposed fields include:
+Important fields include:
 
 - `id`
 - `linkname`
@@ -126,13 +226,13 @@ Proposed fields include:
 - `created_at`
 - `updated_at`
 
-A unique constraint on `(linkname, user_id)` will prevent duplicate credentials for the same user within a tenant.
+Passwords are hashed using Argon2id.
 
 ### `auth_sessions`
 
-Stores refresh-token session information.
+Stores refresh-token sessions.
 
-Proposed fields include:
+Important fields include:
 
 - `id`
 - `linkname`
@@ -143,88 +243,68 @@ Proposed fields include:
 - `last_used_at`
 - `replaced_by`
 - `created_at`
+- `updated_at`
 
-The final schema will be documented after its migrations are implemented.
+The `replaced_by` field links an old session to the session created during refresh-token rotation.
 
-## Technology Stack
+The `refresh_token_hash` column has a unique constraint so that a hash cannot identify multiple sessions.
 
-- Node.js
-- Express.js
-- PostgreSQL
-- JWT
-- Secure password hashing
-- JavaScript with CommonJS modules
-- `node-pg-migrate` for database migrations
+## Token Lifecycle
 
-Additional technologies may be introduced as requirements evolve.
+### Access Token
 
-## Local Development
+- Signed using RS256.
+- Short-lived, configured for 15 minutes by default.
+- Contains claims identifying the user and tenant.
+- Verified by downstream services using the corresponding public key.
+- Must be checked for signature validity, expiry, issuer, and audience.
 
-### Prerequisites
+### Refresh Token
 
-- Node.js
-- npm
-- PostgreSQL
+- Generated using cryptographically secure random bytes.
+- Returned to the client.
+- Stored in PostgreSQL only as a SHA-256 hash.
+- Valid for seven days in the current implementation.
+- Rotated whenever the refresh endpoint succeeds.
+- Revoked when the user logs out.
 
-### Installation
+## Security Considerations
 
-Clone the repository and install dependencies:
-
-```bash
-git clone https://github.com/yatharthojha1999/taskforge-auth-service.git
-cd taskforge-auth-service
-npm install
-```
-
-Create a `.env` file in the project root using `.env.example` as a reference, once the example file is available.
-
-Configure the required environment variables for the application and PostgreSQL connection. Do not commit `.env` or actual credentials.
-
-### Run the service
-
-```bash
-npm start
-```
-
-### Database migrations
-
-The repository is intended to use `node-pg-migrate`.
-
-After migration scripts and their npm commands are configured, use the documented migration commands to apply or roll back schema changes. Do not assume migrations are available until they have been implemented.
-
-## Security Guidelines
-
-- Never store plaintext passwords.
-- Never return password hashes or tokens unnecessarily.
-- Never commit secrets, signing keys, or database credentials.
-- Use parameterized SQL queries.
-- Protect internal endpoints with service-to-service authentication.
-- Validate and normalize incoming requests.
-- Enforce account and tenant status checks during authentication.
+- Never store plaintext passwords or refresh tokens in PostgreSQL.
+- Never log passwords, access tokens, or raw refresh tokens.
+- Keep the JWT private key and environment secrets out of source control.
+- Protect internal service endpoints with service-to-service authentication.
+- Validate access-token claims in every downstream service.
+- Enforce tenant isolation and authorization independently of authentication.
 - Use HTTPS in deployed environments.
-- Apply appropriate rate limits to authentication endpoints.
+- Configure rate limiting and appropriate monitoring for authentication endpoints.
+- Return consistent HTTP status codes for validation failures, invalid credentials, and unexpected server errors.
 
-## Project Status
+## Testing
 
-**Current milestone:** Auth Service foundation and credential-management design.
+The following scenarios have been manually tested during development:
 
-| Feature | Status |
-|---|---|
-| Service repository and initial structure | Created |
-| Database connection foundation | Based on the service template; verify in this repository |
-| `user_credentials` migration | Planned |
-| Internal credential creation endpoint | Planned |
-| Password hashing and verification | Planned |
-| Login and JWT issuance | Planned |
-| Refresh-token management | Planned |
-| Logout and session revocation | Planned |
-| Service-to-service security | Planned |
+- Successful login.
+- Successful refresh-token rotation.
+- Rejection of a previously used refresh token.
+- Rejection of invalid, expired, revoked, or replaced refresh sessions.
+- Concurrent refresh requests using the same token.
+- Logout and rejection of a revoked refresh token.
 
-Update this section as features are implemented and tested.
+Automated tests should also cover these scenarios, database rollback behavior, and HTTP status-code handling.
 
-## Related Project
+## Current Scope and Future Improvements
 
-TaskForge AI is a multi-tenant task management platform being developed with a microservice architecture.
+Potential improvements include:
 
-The Auth Service is responsible for authentication and credentials; other services retain ownership of their respective domain data.
+- Automated unit and integration tests.
+- Access-token verification middleware shared across services.
+- Session listing and individual-session revocation.
+- Device metadata for session management.
+- Rate limiting and security monitoring.
+- Improved handling of retries when a refresh succeeds in the database but its response never reaches the client.
+- Production key management and rotation.
 
+## Project
+
+TaskForge AI is being developed as a collection of independent microservices. The Auth Service handles identity verification and authentication sessions, while the User Service owns tenant and user-profile information.
