@@ -14,6 +14,20 @@ async function addUserCredentials({
     }
 }
 
+async function getUserCredentialsByDomainAndUserId({ domain, userId }) {
+    let whereClause = `linkname=$1`;
+    const values = [domain];
+    if (userId) {
+        whereClause += ` AND user_id=$2`;
+        values.push(userId);
+    }
+    const tenantQuery = `SELECT * FROM ${TABLE_NAME} WHERE ${whereClause};`;
+    const tenantResult = await pool.query(tenantQuery, values);
+    return tenantResult.rows[0] ?? null;
+}
+
+
 module.exports = Object.freeze({
-    addUserCredentials
+    addUserCredentials,
+    getUserCredentialsByDomainAndUserId,
 })
