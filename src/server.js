@@ -1,10 +1,22 @@
 const express = require("express");
+const cors = require("cors");
 const routes = require("./routes");
 const pool = require("./infrastructure/database/postgres.db");
 const errorHandler = require("./middleware/error-handler");
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+app.use(cors({
+    origin: "http://localhost:5173",
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: [
+        "Content-Type",
+        "Authorization",
+        "X-Service-Token",
+        "X-Linkname"
+    ]
+}));
 
 app.use(express.json());
 app.use("/", routes);

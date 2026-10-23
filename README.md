@@ -1,310 +1,123 @@
-# TaskForge AI — Auth Service
-
-The Auth Service is responsible for authentication and session management in TaskForge AI, a multi-tenant task management platform built using a microservice architecture.
-
-It manages user credential verification, access-token issuance, refresh-token rotation, and logout.
-
-## Features
-
-- User credential creation through an internal API.
-- Password hashing and verification using Argon2id.
-- Login using tenant identity, email, and password.
-- Access-token generation using JWT with RS256.
-- Refresh tokens generated using cryptographically secure randomness.
-- SHA-256 hashing of refresh tokens before database storage.
-- Refresh-token rotation with PostgreSQL transactions and row locking.
-- Session revocation during logout.
-- Input validation using Joi.
-- PostgreSQL persistence using parameterized queries.
-- Clean Architecture with separate controllers, use cases, and database operations.
-
-## Technology Stack
-
+TaskForge AI --- Auth Service
+The Auth Service handles authentication and credential/session
+operations for TaskForge AI. It is a Node.js/Express service using
+PostgreSQL, Argon2, JWT, and Axios for internal service calls.
+Current responsibilities
+- Create user credentials for the User Service's registration flow.
+- Hash passwords using Argon2id.
+- Authenticate users.
+- Issue RS256 access JWTs.
+- Create and rotate refresh tokens.
+- Revoke refresh sessions on logout.
+- Query the User Service to verify the user and tenant during login.
+Technology
 - Node.js
-- Express.js
+- Express
 - PostgreSQL
-- `pg`
-- JSON Web Tokens (`jsonwebtoken`)
-- Argon2
-- Joi
-- Axios for communication with the User Service
-- `node-pg-migrate` for database migrations
-
-## Architecture
-
-The Auth Service follows a layered architecture:
-
-```text
-HTTP Request
-    |
-    v
-Routes
-    |
-    v
-Controllers
-    |
-    v
-Use Cases
-    |
-    v
-Database Queries
-    |
-    v
-PostgreSQL
-```
-
-Supporting utilities handle password hashing, password verification, access-token generation, refresh-token generation, and refresh-token hashing.
-
-The Auth Service communicates with the User Service when it needs to retrieve user information and verify the user's status.
-
-## Prerequisites
-
-- Node.js and npm
-- PostgreSQL
-- A running TaskForge User Service for login and registration integration
-- RSA private and public keys for JWT signing and verification
-
-## Getting Started
-
-Clone the repository:
-
-```bash
-git clone <YOUR_AUTH_SERVICE_REPOSITORY_URL>
-cd taskforge-auth-service
-```
-
-Install dependencies:
-
-```bash
-npm install
-```
-
-Create a local `.env` file based on your environment configuration. Never commit the real `.env` file or private keys.
-
-Example configuration:
-
-```env
-PORT=3001
-DATABASE_URL=postgresql://postgres:<PASSWORD>@localhost:5432/taskforge
-
-JWT_PRIVATE_KEY_PATH=private.pem
-JWT_PUBLIC_KEY_PATH=public.pem
-JWT_ACCESS_EXPIRES_IN=15m
-JWT_ISSUER=taskforge-auth-service
-JWT_AUDIENCE=taskforge-api
-```
-
-Use the actual variable names expected by the application's configuration. Configure the User Service URL and any internal service-authentication secrets required by your implementation.
-
-Generate an RSA key pair for local development if you do not already have one. Keep the private key secret. Distribute the public key to services that need to verify access tokens.
-
-Run the database migrations using the migration command configured in `package.json`.
-
-Start the service using the start or development script defined in `package.json`.
-
-## API Endpoints
-
-### 1. Create User Credentials
-
-**Method:** `POST`
-
-**Endpoint:** `/internal/v1/credentials`
-
-Creates password credentials for an existing user.
-
-Example request:
-
-```json
-{
-  "linkname": "acme.com",
-  "user_id": 101,
-  "password": "StrongPassword123!"
-}
-```
-
-The Auth Service hashes the password before storing it. Plaintext passwords and password hashes must not be returned in API responses or logged.
-
-This is an internal endpoint and must be protected with service-to-service authentication.
-
-### 2. Login
-
-**Method:** `POST`
-
-**Endpoint:** `/auth/v1/login`
-
-Authenticates a user and creates a refresh-token session.
-
-Example request:
-
-```json
-{
-  "linkname": "acme.com",
-  "email": "john@acme.com",
-  "password": "StrongPassword123!"
-}
-```
-
-Successful response:
-
-```json
-{
-  "accessToken": "<access-token>",
-  "refreshToken": "<refresh-token>"
-}
-```
-
-The access token is a signed JWT. The refresh token is a securely generated opaque token; only its SHA-256 hash is stored in PostgreSQL.
-
-### 3. Refresh Access Token
-
-**Method:** `POST`
-
-**Endpoint:** `/auth/v1/refresh`
-
-Issues a new access token and rotates the refresh token.
-
-Example request:
-
-```json
-{
-  "refreshToken": "<current-refresh-token>"
-}
-```
-
-Successful response:
-
-```json
-{
-  "accessToken": "<new-access-token>",
-  "refreshToken": "<new-refresh-token>"
-}
-```
-
-The previous refresh token is invalidated and linked to the replacement session. Reusing the old token must be rejected.
-
-The implementation uses a PostgreSQL transaction and row locking to prevent concurrent requests from successfully rotating the same session.
-
-### 4. Logout
-
-**Method:** `POST`
-
-**Endpoint:** `/auth/v1/logout`
-
-Revokes the session associated with the supplied refresh token.
-
-Example request:
-
-```json
-{
-  "refreshToken": "<current-refresh-token>"
-}
-```
-
-Example response:
-
-```json
-{
-  "message": "Logged out successfully."
-}
-```
-
-Logout revokes the refresh session. An already-issued access token can remain valid until it expires unless an additional access-token revocation mechanism is implemented.
-
-## Database Design
-
-### `user_credentials`
-
-Stores password credentials associated with a tenant and user.
-
-Important fields include:
-
-- `id`
-- `linkname`
-- `user_id`
-- `password_hash`
-- `password_changed_at`
-- `created_at`
-- `updated_at`
-
-Passwords are hashed using Argon2id.
-
-### `auth_sessions`
-
-Stores refresh-token sessions.
-
-Important fields include:
-
-- `id`
-- `linkname`
-- `user_id`
-- `refresh_token_hash`
-- `expires_at`
-- `revoked_at`
-- `last_used_at`
-- `replaced_by`
-- `created_at`
-- `updated_at`
-
-The `replaced_by` field links an old session to the session created during refresh-token rotation.
-
-The `refresh_token_hash` column has a unique constraint so that a hash cannot identify multiple sessions.
-
-## Token Lifecycle
-
-### Access Token
-
-- Signed using RS256.
-- Short-lived, configured for 15 minutes by default.
-- Contains claims identifying the user and tenant.
-- Verified by downstream services using the corresponding public key.
-- Must be checked for signature validity, expiry, issuer, and audience.
-
-### Refresh Token
-
-- Generated using cryptographically secure random bytes.
-- Returned to the client.
-- Stored in PostgreSQL only as a SHA-256 hash.
-- Valid for seven days in the current implementation.
-- Rotated whenever the refresh endpoint succeeds.
-- Revoked when the user logs out.
-
-## Security Considerations
-
-- Never store plaintext passwords or refresh tokens in PostgreSQL.
-- Never log passwords, access tokens, or raw refresh tokens.
-- Keep the JWT private key and environment secrets out of source control.
-- Protect internal service endpoints with service-to-service authentication.
-- Validate access-token claims in every downstream service.
-- Enforce tenant isolation and authorization independently of authentication.
-- Use HTTPS in deployed environments.
-- Configure rate limiting and appropriate monitoring for authentication endpoints.
-- Return consistent HTTP status codes for validation failures, invalid credentials, and unexpected server errors.
-
-## Testing
-
-The following scenarios have been manually tested during development:
-
-- Successful login.
-- Successful refresh-token rotation.
-- Rejection of a previously used refresh token.
-- Rejection of invalid, expired, revoked, or replaced refresh sessions.
-- Concurrent refresh requests using the same token.
-- Logout and rejection of a revoked refresh token.
-
-Automated tests should also cover these scenarios, database rollback behavior, and HTTP status-code handling.
-
-## Current Scope and Future Improvements
-
-Potential improvements include:
-
-- Automated unit and integration tests.
-- Access-token verification middleware shared across services.
-- Session listing and individual-session revocation.
-- Device metadata for session management.
-- Rate limiting and security monitoring.
-- Improved handling of retries when a refresh succeeds in the database but its response never reaches the client.
-- Production key management and rotation.
-
-## Project
-
-TaskForge AI is being developed as a collection of independent microservices. The Auth Service handles identity verification and authentication sessions, while the User Service owns tenant and user-profile information.
+- argon2
+- jsonwebtoken
+- node-pg-migrate
+- Axios
+- Docker Compose
+Run with Docker Compose
+Run commands from the main taskforge-ai repository root.
+
+Ensure the root .env contains POSTGRES_PASSWORD, and ensure the
+PostgreSQL container has a database named taskforge_auth. If it does
+not exist, create it:
+docker compose exec postgres psql -U taskforge -d postgres -c "CREATE DATABASE taskforge_auth;"
+Run the Auth Service migrations:
+docker compose --profile migrations run --build --rm auth-migrate
+Start or rebuild the service:
+docker compose up -d --build auth-service
+Check status and logs:
+docker compose ps
+docker compose logs --tail=80 auth-service
+The service is exposed at http://localhost:3001 on the host. Other
+Compose services should reach it at http://auth-service:3001.
+Environment variables
+  Variable                  Docker Compose value / purpose
+  PORT                    3001
+  DB_HOST                 postgres
+  DB_PORT                 5432
+  DB_NAME                 taskforge_auth
+  DB_USER                 taskforge
+  DB_PASSWORD             Read from root .env as POSTGRES_PASSWORD
+  USER_SERVICE_URL        http://user-service:3000 in Docker
+  JWT_PRIVATE_KEY_PATH    /run/secrets/jwt-private-key in Docker
+  JWT_ACCESS_EXPIRES_IN   15m
+  JWT_ISSUER              taskforge-auth-service
+  JWT_AUDIENCE            taskforge-api
+
+The JWT private key is mounted through the Compose secret
+jwt-private-key, sourced from
+taskforge-auth-service/jwt-private.pem. Keep the private key out of
+version control and do not paste its contents into logs or chats.
+
+The application configuration should read process.env.USER_SERVICE_URL
+and use http://localhost:3000 only as a fallback for local
+development.
+API routes
+  Method                  Endpoint                     Purpose
+  POST                  /internal/v1/credentials   Internal credential
+                                                       creation called by User
+                                                       Service
+
+  POST                  /auth/v1/login             Authenticate a user
+
+  POST                  /auth/v1/refresh           Refresh/rotate a
+                                                       session token
+
+  POST                  /auth/v1/logout            Log out/revoke a
+                                                   refresh session
+Confirm required fields, validation rules, status codes, and response
+formats in the current route/controller/validator implementation before
+using these endpoints.
+Database
+The service database is taskforge_auth. After migrations, the expected
+tables are:
+- user_credentials
+- auth_sessions
+- pgmigrations
+Verify:
+docker compose exec postgres psql -U taskforge -d taskforge_auth -c "\dt"
+Run migrations after adding a migration file:
+docker compose --profile migrations run --build --rm auth-migrate
+Each service has its own database and migration history. Do not point
+both services at the same database while using the current migration
+setup.
+Authentication notes
+- Passwords are hashed with Argon2id.
+- Access tokens use RS256 and are configured for a 15-minute lifetime
+  in Compose.
+- Refresh tokens are random values; their SHA-256 hashes are stored in
+  the database.
+- Refresh operations rotate refresh tokens.
+- Logout revokes the relevant refresh session.
+These implementation notes describe the current design; test refresh
+rotation, expired-token handling, and post-logout refresh rejection
+before treating those flows as fully verified.
+Service-to-service login flow
+The Auth Service calls the User Service using USER_SERVICE_URL to look
+up the user and check the user status. Inside Docker, use
+http://user-service:3000; do not hardcode localhost:3000 for
+container-to-container calls.
+Troubleshooting
+docker compose logs --tail=100 auth-service
+docker compose exec auth-service printenv USER_SERVICE_URL
+Expected Docker URL:
+http://user-service:3000
+If JWT key loading fails, verify the configured secret file exists at
+taskforge-auth-service/jwt-private.pem on the host and is mounted at
+/run/secrets/jwt-private-key in the container. Do not expose the
+private key.
+
+If PostgreSQL reports that the database does not exist, create the
+database and run the migration job. Do not remove the PostgreSQL volume
+to resolve this issue.
+Tests and documentation
+Registration, login, and logout have been tested in the Dockerized
+environment. Keep this status current as further tests are performed.
+When adding endpoints or migrations, update this README with the method,
+path, request/response examples, configuration changes, and test
+results.

@@ -1,3 +1,3 @@
 module.exports = {
-    userService: "http://localhost:3000"
+    userService: process.env.USER_SERVICE_URL || "http://localhost:3000"
 }
