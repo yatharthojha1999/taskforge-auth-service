@@ -20,9 +20,15 @@ const logoutAction = makeLogoutAction({
     logoutUsecase: usersCredentialsUsecase.logout,
 });
 
+const makeCreateInvitationAction = require('./create-invitation');
+const createInvitationAction = makeCreateInvitationAction({
+    createInvitationUsecase: usersCredentialsUsecase.createInvitation,
+});
+
 module.exports = Object.freeze({
     createUserCredentialsAction,
     userLoginAction,
     rotateRefreshTokenAction,
     logoutAction,
+    createInvitationAction,
 });

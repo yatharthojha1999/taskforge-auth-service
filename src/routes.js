@@ -10,5 +10,6 @@ router.post("/internal/v1/credentials", userCredentials.createUserCredentialsAct
 router.post("/auth/v1/login", userCredentials.userLoginAction);
 router.post("/auth/v1/refresh", userCredentials.rotateRefreshTokenAction);
 router.post("/auth/v1/logout", userCredentials.logoutAction);
+router.post("/internal/v1/invitations", userCredentials.createInvitationAction);
 
 module.exports = router;

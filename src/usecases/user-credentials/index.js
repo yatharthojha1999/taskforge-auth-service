@@ -1,10 +1,12 @@
 const Joi = require('joi');
-const { usersCredentialsDb, authSessionsDb } = require('../../database/queries');
+const { usersCredentialsDb, authSessionsDb, invitationsDb } = require('../../database/queries');
 
 const { userService } = require('../../internal-apis');
+const { invitationConfig } = require('../../config/backend_config');
 
 const { hashPassword, verifyPassword, hashRefreshToken } = require('../../scripts/helper-functions');
 const makeAppError = require('../../utils/app-error');
+const {generateInvitationToken, hashInvitationToken} = require("../../utils/invitation-token");
 
 const { generateAccessToken } = require("../../utils/generate-jwt-accesstoken");
 const { generateRefreshToken } = require("../../utils/generate-refresh-token");
@@ -47,9 +49,21 @@ const logout = makeLogout({
     makeAppError,
 });
 
+const makeCreateInvitation = require('./create-invitation');
+const createInvitation = makeCreateInvitation({
+    Joi,
+    invitationsDb,
+    userService,
+    emailService,
+    invitationConfig,
+    generateInvitationToken,
+    hashInvitationToken,
+});
+
 module.exports = {
     createUserCredentials,
     userLogin,
     rotateRefreshToken,
     logout,
+    createInvitation,
 }
